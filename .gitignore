@@ -35,6 +35,9 @@ checkpoints/
 node_modules/
 cdk.out/
 
+# Build / run logs
+*.log
+
 # OS / editor
 .DS_Store
 Thumbs.db

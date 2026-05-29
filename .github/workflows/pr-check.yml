@@ -1,0 +1,37 @@
+name: pr-check
+
+# Runs on pull requests. Deliberately has NO AWS credentials and no id-token
+# permission: a public-repo pull_request workflow that can assume a deploy role
+# is an exfiltration risk (a PR can edit this file). So the PR check is limited
+# to what needs no cloud access: the unit tests and `cdk synth` (which only
+# validates that the CDK app builds a valid template). The real `cdk diff` and
+# deploy happen on push to main in deploy.yml.
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+
+      - name: Unit tests
+        run: uv run pytest -q
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: npm install -g aws-cdk
+
+      - name: CDK synth
+        working-directory: cdk
+        run: |
+          uv sync
+          cdk synth --quiet

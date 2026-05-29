@@ -1,0 +1,58 @@
+name: deploy
+
+# Build the container, push to ECR, and deploy the CDK stack on every push to
+# main. Auth is via GitHub OIDC (no long-lived AWS keys in repo secrets); the
+# only secret is the ARN of the role to assume.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: deploy-main
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      AWS_REGION: us-east-1
+      ECR_REPO: sar-flood-aws
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: npm install -g aws-cdk
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Build and push image
+        run: |
+          ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
+          REGISTRY=$ACCOUNT.dkr.ecr.$AWS_REGION.amazonaws.com
+          URI=$REGISTRY/$ECR_REPO
+          aws ecr describe-repositories --repository-names $ECR_REPO --region $AWS_REGION >/dev/null 2>&1 \
+            || aws ecr create-repository --repository-name $ECR_REPO --region $AWS_REGION
+          aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $REGISTRY
+          docker build --provenance=false --sbom=false -t $URI:${{ github.sha }} -t $URI:latest .
+          docker push $URI:${{ github.sha }}
+          docker push $URI:latest
+          echo "IMAGE_URI=$URI:${{ github.sha }}" >> "$GITHUB_ENV"
+
+      - name: CDK deploy
+        working-directory: cdk
+        run: |
+          uv sync
+          cdk deploy --require-approval never -c image_uri="$IMAGE_URI"

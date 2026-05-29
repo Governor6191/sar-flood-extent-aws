@@ -15,6 +15,7 @@ The container image is treated as a build artifact owned outside the stack (the
 CI pipeline builds and pushes it). The stack consumes it by URI and the SageMaker
 execution role is granted pull on the ECR repository.
 """
+import json
 import os
 
 from aws_cdk import (
@@ -43,6 +44,7 @@ ENDPOINT_MEMORY_MB = 3072  # fresh-account serverless memory quota
 MAX_CONCURRENCY = 1
 
 _KICKER_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "lambda", "kicker")
+_DASHBOARD_PATH = os.path.join(os.path.dirname(__file__), "..", "dashboards", "main.json")
 
 
 class SarFloodAwsStack(Stack):
@@ -224,6 +226,16 @@ class SarFloodAwsStack(Stack):
             comparison_operator=cw.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
             treat_missing_data=cw.TreatMissingData.NOT_BREACHING,
             alarm_description="SageMaker endpoint returned a 5XX in 5 min.",
+        )
+
+        # --- CloudWatch dashboard ----------------------------------------
+        with open(_DASHBOARD_PATH) as f:
+            dashboard_body = f.read().replace("${REGION}", self.region)
+        cw.CfnDashboard(
+            self,
+            "Dashboard",
+            dashboard_name="sar-flood-aws",
+            dashboard_body=json.dumps(json.loads(dashboard_body)),
         )
 
         # --- AWS Budgets (opt-in) ----------------------------------------

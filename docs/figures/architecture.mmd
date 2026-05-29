@@ -1,0 +1,32 @@
+flowchart LR
+    Caller["Caller<br/>(curl / web)"]
+
+    subgraph APIGW["API Gateway REST API + usage plan<br/>(API key, 100 req/day, 5 req/s)"]
+        direction TB
+        R1["POST /uploads"]
+        R2["POST /infer"]
+        R3["GET /infer/{job_id}"]
+    end
+
+    Kicker["Lambda kicker<br/>submit / process / status"]
+    SM["SageMaker<br/>Serverless Inference<br/>(U-Net, CPU, 3072 MB)"]
+    S3I[("S3 inputs/")]
+    S3O[("S3 outputs/")]
+    DDB[("DynamoDB<br/>jobs (TTL)")]
+
+    Caller --> APIGW
+    R1 -. presigned PUT .-> S3I
+    Caller -. upload scene .-> S3I
+    R2 --> Kicker
+    R3 --> Kicker
+    Kicker -->|write job state| DDB
+    Kicker -->|read scene| S3I
+    Kicker -->|invoke| SM
+    SM -->|mask + GeoJSON| Kicker
+    Kicker -->|write outputs| S3O
+    Kicker -. presigned GET .-> Caller
+
+    CW["CloudWatch<br/>dashboard + alarms"]
+    CW -.monitors.-> APIGW
+    CW -.monitors.-> Kicker
+    CW -.monitors.-> SM

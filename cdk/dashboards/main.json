@@ -1,0 +1,65 @@
+{
+  "widgets": [
+    {
+      "type": "metric",
+      "x": 0, "y": 0, "width": 12, "height": 6,
+      "properties": {
+        "title": "API Gateway requests",
+        "region": "${REGION}",
+        "view": "timeSeries",
+        "stacked": false,
+        "period": 300,
+        "metrics": [
+          ["AWS/ApiGateway", "Count", "ApiName", "sar-flood-aws", "Stage", "demo", { "stat": "Sum", "label": "requests" }],
+          ["AWS/ApiGateway", "4XXError", "ApiName", "sar-flood-aws", "Stage", "demo", { "stat": "Sum", "label": "4XX" }],
+          ["AWS/ApiGateway", "5XXError", "ApiName", "sar-flood-aws", "Stage", "demo", { "stat": "Sum", "label": "5XX" }]
+        ]
+      }
+    },
+    {
+      "type": "metric",
+      "x": 12, "y": 0, "width": 12, "height": 6,
+      "properties": {
+        "title": "API Gateway latency (ms)",
+        "region": "${REGION}",
+        "view": "timeSeries",
+        "period": 300,
+        "metrics": [
+          ["AWS/ApiGateway", "Latency", "ApiName", "sar-flood-aws", "Stage", "demo", { "stat": "p50", "label": "p50" }],
+          ["AWS/ApiGateway", "Latency", "ApiName", "sar-flood-aws", "Stage", "demo", { "stat": "p95", "label": "p95" }],
+          ["AWS/ApiGateway", "Latency", "ApiName", "sar-flood-aws", "Stage", "demo", { "stat": "p99", "label": "p99" }]
+        ]
+      }
+    },
+    {
+      "type": "metric",
+      "x": 0, "y": 6, "width": 12, "height": 6,
+      "properties": {
+        "title": "Lambda kicker",
+        "region": "${REGION}",
+        "view": "timeSeries",
+        "period": 300,
+        "metrics": [
+          ["AWS/Lambda", "Invocations", "FunctionName", "sar-flood-aws-kicker", { "stat": "Sum", "label": "invocations" }],
+          ["AWS/Lambda", "Errors", "FunctionName", "sar-flood-aws-kicker", { "stat": "Sum", "label": "errors" }],
+          ["AWS/Lambda", "Duration", "FunctionName", "sar-flood-aws-kicker", { "stat": "Average", "label": "avg duration (ms)", "yAxis": "right" }]
+        ]
+      }
+    },
+    {
+      "type": "metric",
+      "x": 12, "y": 6, "width": 12, "height": 6,
+      "properties": {
+        "title": "SageMaker serverless endpoint",
+        "region": "${REGION}",
+        "view": "timeSeries",
+        "period": 300,
+        "metrics": [
+          ["AWS/SageMaker", "Invocations", "EndpointName", "sar-flood-aws", "VariantName", "AllTraffic", { "stat": "Sum", "label": "invocations" }],
+          ["AWS/SageMaker", "Invocation5XXErrors", "EndpointName", "sar-flood-aws", "VariantName", "AllTraffic", { "stat": "Sum", "label": "5XX" }],
+          ["AWS/SageMaker", "ModelLatency", "EndpointName", "sar-flood-aws", "VariantName", "AllTraffic", { "stat": "Average", "label": "model latency (us)", "yAxis": "right" }]
+        ]
+      }
+    }
+  ]
+}

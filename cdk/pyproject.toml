@@ -1,0 +1,12 @@
+[project]
+name = "sar-flood-aws-cdk"
+version = "0.1.0"
+description = "CDK app that deploys the sar-flood-aws serverless inference stack"
+requires-python = ">=3.11"
+dependencies = [
+    "aws-cdk-lib>=2.150,<3",
+    "constructs>=10,<11",
+]
+
+[tool.uv]
+package = false

@@ -34,6 +34,7 @@ checkpoints/
 # CDK / Node (later stages)
 node_modules/
 cdk.out/
+cdk-outputs.json
 
 # Build / run logs
 *.log

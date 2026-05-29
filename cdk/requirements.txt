@@ -1,0 +1,4 @@
+# The CDK app uses uv (pyproject.toml). This file mirrors the dependency set for
+# tooling or CI that expects a requirements.txt.
+aws-cdk-lib>=2.150,<3
+constructs>=10,<11

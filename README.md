@@ -22,12 +22,13 @@ the result from a presigned URL when it is done.
 export API="https://dne7hggf3f.execute-api.us-east-1.amazonaws.com/demo"
 export API_KEY="<demo key, rate-limited to 100 req/day>"
 
-# 1. ask for a presigned upload URL
+# 1. ask for a presigned upload (an S3 POST policy, capped at 5 MB)
 curl -s -X POST "$API/uploads" -H "x-api-key: $API_KEY"
-# -> { "input_key": "inputs/.../scene.tif", "upload_url": "https://...", ... }
+# -> { "input_key": "...", "upload_url": "https://...", "upload_fields": {...}, "method": "POST", "max_bytes": 5242880 }
 
-# 2. upload a Sentinel-1 crop to that URL
-curl -s -X PUT --upload-file scene.tif "<upload_url>"
+# 2. upload a Sentinel-1 crop with the returned fields (file goes last).
+#    Each entry in upload_fields is a -F flag; see docs/usage.md for the full form.
+curl -s -X POST "<upload_url>" -F key="<...>" -F policy="<...>" -F file=@scene.tif
 
 # 3. submit the job
 curl -s -X POST "$API/infer" -H "x-api-key: $API_KEY" \
@@ -39,6 +40,10 @@ curl -s -X POST "$API/infer" -H "x-api-key: $API_KEY" \
 curl -s "$API/infer/<job_id>" -H "x-api-key: $API_KEY"
 # -> { "status": "done", "water_fraction": 0.0266, "mask_url": "...", "geojson_url": "..." }
 ```
+
+There's also a browser demo at
+[governor6191.github.io/projects/flood-demo.html](https://governor6191.github.io/projects/flood-demo.html):
+upload a crop and watch the flood polygons render on a map.
 
 Full request and response schema: [docs/usage.md](docs/usage.md) and
 [docs/api_contract.md](docs/api_contract.md). The demo key is rate-limited; ask
@@ -55,8 +60,10 @@ for one, or deploy your own copy with the CDK app below.
   endpoint, writes the mask and GeoJSON back to S3, and updates the job. A second
   asynchronous invocation does the inference so the submit call returns
   immediately.
-- **API key + usage plan** (100 req/day, 5 req/s) keep the public URL from being
-  abused. The SageMaker endpoint caps concurrency at 1.
+- **API key + usage plan** keep the public URL from being abused: a dev key at
+  100 req/day, and a separate public key for the web demo at 20 req/day and 1
+  req/s, locked by CORS to the portfolio origin, with a 5 MB cap on uploads. The
+  SageMaker endpoint caps concurrency at 1.
 - **S3 lifecycle** purges inputs and outputs after 7 days. DynamoDB rows expire
   on a TTL. Idle cost stays near zero.
 
@@ -153,7 +160,6 @@ increase or a tiled S3 read path. See [future work](#future-work).
 
 - Tiled S3 streaming read so full scenes run through the endpoint without the
   payload limit.
-- A small web demo on the portfolio site (upload a crop, see the mask on a map).
 - Provisioned concurrency or a scheduled warm-up to cut the cold start, if a use
   case needs it.
 

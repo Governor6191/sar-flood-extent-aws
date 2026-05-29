@@ -2,8 +2,8 @@
 
 Walks the full caller flow against the live REST API:
 
-  1. POST /uploads               -> presigned S3 PUT URL
-  2. PUT the crop to that URL
+  1. POST /uploads               -> presigned S3 POST (url + fields, 5 MB cap)
+  2. POST the crop to that URL
   3. POST /infer {input_key}      -> job_id
   4. poll GET /infer/{job_id}     until status == done
   5. download the mask via the presigned URL
@@ -62,15 +62,35 @@ def main() -> int:
 
     # 1. presign
     up = _req("POST", f"{base}/uploads", key, {})
-    print(f"1. presigned upload -> {up['input_key']}")
+    print(f"1. presigned upload -> {up['input_key']} (cap {up.get('max_bytes')} bytes)")
 
-    # 2. upload the crop to the presigned URL (no api key, no content-type)
+    # 2. upload the crop via the presigned POST policy. The policy enforces the
+    #    5 MB content-length-range server-side, so the fields must go in the form
+    #    with the file last (S3 ignores anything after the file field). No api key.
     body = crop.read_bytes()
-    put = urllib.request.Request(up["upload_url"], data=body, method="PUT")
-    with urllib.request.urlopen(put, timeout=60) as r:
+    boundary = "----sarfloodextente2e"
+    chunks = []
+    for fk, fv in up["upload_fields"].items():
+        chunks.append(
+            f'--{boundary}\r\nContent-Disposition: form-data; name="{fk}"\r\n\r\n{fv}\r\n'.encode()
+        )
+    chunks.append(
+        f'--{boundary}\r\nContent-Disposition: form-data; name="file"; filename="scene.tif"\r\n'
+        f"Content-Type: image/tiff\r\n\r\n".encode()
+        + body
+        + f"\r\n--{boundary}--\r\n".encode()
+    )
+    form = b"".join(chunks)
+    post = urllib.request.Request(
+        up["upload_url"],
+        data=form,
+        method="POST",
+        headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+    )
+    with urllib.request.urlopen(post, timeout=60) as r:
         if r.status not in (200, 204):
             sys.exit(f"upload failed: HTTP {r.status}")
-    print(f"2. uploaded {len(body)} bytes")
+    print(f"2. uploaded {len(body)} bytes via presigned POST")
 
     # 3. submit
     sub = _req("POST", f"{base}/infer", key, {"input_key": up["input_key"]})

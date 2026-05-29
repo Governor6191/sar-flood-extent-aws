@@ -42,6 +42,11 @@ TABLE_NAME = "sar-flood-aws-jobs"
 ECR_REPO_NAME = "sar-flood-aws"
 ENDPOINT_MEMORY_MB = 3072  # fresh-account serverless memory quota
 MAX_CONCURRENCY = 1
+# The portfolio site is the only browser origin allowed to call the API and read
+# from S3. CORS, the public usage plan, and the upload size cap are the demo's
+# defense in depth; none of them rely on the API key staying secret.
+ALLOWED_ORIGIN = "https://governor6191.github.io"
+MAX_UPLOAD_BYTES = 5 * 1024 * 1024  # 5 MB hard cap, enforced server-side by S3
 
 _KICKER_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "lambda", "kicker")
 _DASHBOARD_PATH = os.path.join(os.path.dirname(__file__), "..", "dashboards", "main.json")
@@ -68,6 +73,24 @@ class SarFloodAwsStack(Stack):
             lifecycle_rules=[
                 s3.LifecycleRule(id="expire-inputs-7d", prefix="inputs/", expiration=Duration.days(7)),
                 s3.LifecycleRule(id="expire-outputs-7d", prefix="outputs/", expiration=Duration.days(7)),
+            ],
+            # The browser demo uploads the scene straight to S3 (presigned POST) and
+            # fetches the result GeoJSON from S3 (presigned GET), both cross-origin
+            # from the portfolio site. Without this rule S3 sends no CORS headers and
+            # the browser blocks both calls. Same origin lock as the REST API.
+            cors=[
+                s3.CorsRule(
+                    allowed_methods=[
+                        s3.HttpMethods.GET,
+                        s3.HttpMethods.PUT,
+                        s3.HttpMethods.POST,
+                        s3.HttpMethods.HEAD,
+                    ],
+                    allowed_origins=[ALLOWED_ORIGIN],
+                    allowed_headers=["*"],
+                    exposed_headers=["ETag"],
+                    max_age=3000,
+                )
             ],
         )
 
@@ -148,6 +171,8 @@ class SarFloodAwsStack(Stack):
                 "ENDPOINT": ENDPOINT_NAME,
                 "TTL_DAYS": "7",
                 "MAX_INPUT_BYTES": "3500000",
+                "MAX_UPLOAD_BYTES": str(MAX_UPLOAD_BYTES),
+                "ALLOWED_ORIGIN": ALLOWED_ORIGIN,
             },
         )
         bucket.grant_read_write(fn)
@@ -176,6 +201,16 @@ class SarFloodAwsStack(Stack):
                 throttling_rate_limit=5,
                 throttling_burst_limit=10,
             ),
+            # CORS preflight so the portfolio web demo can call the API from the
+            # browser. This adds a MOCK OPTIONS method (returns 204) to every
+            # resource. The actual GET/POST responses run through Lambda proxy, so
+            # the kicker adds Access-Control-Allow-Origin itself (see handler.py).
+            default_cors_preflight_options=apigw.CorsOptions(
+                allow_origins=[ALLOWED_ORIGIN],
+                allow_methods=["GET", "POST", "OPTIONS"],
+                allow_headers=["Content-Type", "x-api-key"],
+                status_code=204,
+            ),
         )
         integ = apigw.LambdaIntegration(fn, proxy=True)
         infer = api.root.add_resource("infer")
@@ -183,6 +218,9 @@ class SarFloodAwsStack(Stack):
         infer.add_resource("{job_id}").add_method("GET", integ, api_key_required=True)
         api.root.add_resource("uploads").add_method("POST", integ, api_key_required=True)
 
+        # Sylvester's own key, for testing and the README/curl examples. Its value
+        # is already in his local API_KEY env and the e2e test, so it stays exactly
+        # as is (100 req/day, 5 req/s). Left untouched on purpose.
         key = api.add_api_key("DemoKey", api_key_name="sar-flood-aws-demo")
         plan = api.add_usage_plan(
             "UsagePlan",
@@ -192,6 +230,22 @@ class SarFloodAwsStack(Stack):
         )
         plan.add_api_key(key)
         plan.add_api_stage(stage=api.deployment_stage)
+
+        # Separate public key for the web demo. It ships inside flood-demo.html, so
+        # it is visible in client source by design. The defense is not secrecy: it
+        # is this tight plan (20 req/day, 1 req/s, burst 2), the CORS origin lock to
+        # the portfolio site, and the 5 MB upload cap. Worst case a scraper burns 20
+        # cheap inferences a day, which the $5 budget alarm backstops. Keeping it
+        # separate means the public cap never touches the dev key above.
+        public_key = api.add_api_key("DemoPublicKey", api_key_name="sar-flood-aws-demo-public")
+        public_plan = api.add_usage_plan(
+            "PublicUsagePlan",
+            name="sar-flood-aws-demo-public",
+            throttle=apigw.ThrottleSettings(rate_limit=1, burst_limit=2),
+            quota=apigw.QuotaSettings(limit=20, period=apigw.Period.DAY),
+        )
+        public_plan.add_api_key(public_key)
+        public_plan.add_api_stage(stage=api.deployment_stage)
 
         # --- CloudWatch alarms -------------------------------------------
         fn.metric_errors(period=Duration.minutes(5)).create_alarm(
@@ -244,6 +298,7 @@ class SarFloodAwsStack(Stack):
         # --- outputs ------------------------------------------------------
         CfnOutput(self, "ApiUrl", value=api.url, description="Base invoke URL (append /uploads, /infer)")
         CfnOutput(self, "ApiKeyId", value=key.key_id, description="API key id (read the value with the CLI)")
+        CfnOutput(self, "PublicApiKeyId", value=public_key.key_id, description="Public demo key id; value embedded in flood-demo.html")
         CfnOutput(self, "BucketName", value=bucket.bucket_name)
         CfnOutput(self, "EndpointName", value=ENDPOINT_NAME)
 

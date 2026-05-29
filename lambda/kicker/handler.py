@@ -38,6 +38,12 @@ UPLOAD_EXPIRY = int(os.environ.get("UPLOAD_EXPIRY", "900"))
 OUTPUT_EXPIRY = int(os.environ.get("OUTPUT_EXPIRY", "3600"))
 # SageMaker serverless caps the request payload at ~4 MB; keep a margin.
 MAX_INPUT_BYTES = int(os.environ.get("MAX_INPUT_BYTES", str(3_500_000)))
+# Hard cap on what S3 accepts on a presigned upload (5 MB). This is the
+# infrastructure ceiling; the smaller MAX_INPUT_BYTES above is the inference
+# limit, surfaced as a job failure for anything between the two.
+MAX_UPLOAD_BYTES = int(os.environ.get("MAX_UPLOAD_BYTES", str(5 * 1024 * 1024)))
+# Only the portfolio origin may read these responses in the browser.
+ALLOWED_ORIGIN = os.environ.get("ALLOWED_ORIGIN", "https://governor6191.github.io")
 BOUNDARY = "sarfloodextentboundary"
 
 # Force SigV4 so presigned URLs sign only the host. A SigV2 presign would fold
@@ -55,7 +61,12 @@ lam = boto3.client("lambda")
 def _resp(status: int, body: dict) -> dict:
     return {
         "statusCode": status,
-        "headers": {"content-type": "application/json"},
+        "headers": {
+            "content-type": "application/json",
+            # API Gateway adds CORS headers only to the MOCK preflight; a Lambda
+            # proxy response has to carry its own so the browser can read it.
+            "Access-Control-Allow-Origin": ALLOWED_ORIGIN,
+        },
         "body": json.dumps(body),
     }
 
@@ -90,9 +101,15 @@ def _multipart(data: bytes, filename: str = "scene.tif") -> bytes:
 def presign_upload() -> dict:
     upload_id = uuid.uuid4().hex
     input_key = f"inputs/{upload_id}/scene.tif"
-    url = s3.generate_presigned_url(
-        "put_object",
-        Params={"Bucket": BUCKET, "Key": input_key},
+    # A presigned POST (not PUT) so the policy can carry a content-length-range.
+    # S3 rejects anything outside [1, MAX_UPLOAD_BYTES] before it is stored, so a
+    # caller cannot push a large payload even with a valid URL. A PUT presign has
+    # no way to bound the size; only a POST policy does. The caller sends a
+    # multipart/form-data POST with these fields plus the file (file field last).
+    post = s3.generate_presigned_post(
+        Bucket=BUCKET,
+        Key=input_key,
+        Conditions=[["content-length-range", 1, MAX_UPLOAD_BYTES]],
         ExpiresIn=UPLOAD_EXPIRY,
     )
     return _resp(
@@ -100,8 +117,10 @@ def presign_upload() -> dict:
         {
             "upload_id": upload_id,
             "input_key": input_key,
-            "upload_url": url,
-            "method": "PUT",
+            "upload_url": post["url"],
+            "upload_fields": post["fields"],
+            "method": "POST",
+            "max_bytes": MAX_UPLOAD_BYTES,
             "expires_in": UPLOAD_EXPIRY,
         },
     )

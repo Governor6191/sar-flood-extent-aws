@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.py[codz]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Virtualenv
+.venv/
+venv/
+env/
+
+# Local secrets and credentials (never commit)
+.env
+*.pem
+*.key
+aws-exports.js
+.aws/
+
+# Local data and generated outputs
+data/*
+!data/README.md
+outputs/
+*.tif
+*.tiff
+!tests/data/*.tif
+
+# Model weights (pulled from HF Hub / baked into the image)
+*.pt
+*.pth
+checkpoints/
+
+# CDK / Node (later stages)
+node_modules/
+cdk.out/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Local contributor notes
+CLAUDE.md

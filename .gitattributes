@@ -1,0 +1,10 @@
+# Normalize text to LF in the repo so shell scripts and Python run unchanged in
+# the Linux container regardless of the host OS.
+* text=auto eol=lf
+*.sh text eol=lf
+
+# Binary fixtures and weights, never line-ending munged.
+*.tif binary
+*.tiff binary
+*.png binary
+*.pt binary

@@ -1,0 +1,20 @@
+# Local dev convenience. Mounts ./data (drop a Sentinel-1 scene here) and writes
+# masks to ./outputs. Build once, then iterate against the running container.
+services:
+  sar-flood-aws:
+    build: .
+    image: sar-flood-aws:dev
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/data
+      - ./outputs:/tmp/outputs
+    environment:
+      - DEVICE=cpu
+      - OUTPUT_DIR=/tmp/outputs
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s

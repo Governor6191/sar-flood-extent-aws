@@ -1,0 +1,48 @@
+[project]
+name = "sar-flood-aws"
+version = "0.1.0"
+description = "Serverless AWS deployment of the sar-flood-extent SAR flood-extent model"
+requires-python = ">=3.11,<3.12"
+dependencies = [
+    "torch>=2.2",
+    "torchvision",
+    "segmentation-models-pytorch>=0.5",
+    "rasterio>=1.3",
+    "shapely>=2.0",
+    "numpy",
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
+    "python-multipart>=0.0.9",
+    "pydantic>=2.6",
+    "boto3>=1.34",
+    "huggingface_hub>=0.23",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.5",
+    "httpx>=0.27",
+]
+
+[tool.uv]
+package = false
+
+# CPU-only PyTorch wheels. The container and the SageMaker serverless endpoint
+# both run on CPU, so there is no reason to pull the much larger CUDA wheels.
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
+torchvision = { index = "pytorch-cpu" }
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]

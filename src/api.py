@@ -12,6 +12,7 @@ local dev without baked weights the model is pulled from the public HF Hub repo.
 """
 from __future__ import annotations
 
+import base64
 import os
 import tempfile
 import time
@@ -26,6 +27,7 @@ from src.inference import (
     MODEL_VERSION,
     load_constants,
     load_model,
+    mask_to_geotiff_bytes,
     predict,
     write_mask,
 )
@@ -49,7 +51,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="sar-flood-aws", version="0.1.0", lifespan=lifespan)
 
 
-def _run(scene_uri: str, want_geojson: bool, name_hint: str) -> dict:
+def _run(scene_uri: str, want_geojson: bool, name_hint: str, mask_as_bytes: bool = False) -> dict:
     t0 = time.perf_counter()
     result = predict(
         scene_uri,
@@ -58,20 +60,28 @@ def _run(scene_uri: str, want_geojson: bool, name_hint: str) -> dict:
         device=DEVICE,
         want_geojson=want_geojson,
     )
-    stem = Path(name_hint).stem or "scene"
-    out_mask = OUTPUT_DIR / f"{stem}_{uuid.uuid4().hex[:8]}_floodmask.tif"
-    mask_uri = write_mask(result.mask, result.profile, out_mask)
-    return {
-        "mask_uri": mask_uri,
+    out = {
         "water_fraction": round(result.water_fraction, 6),
         "n_polygons": result.n_polygons,
         "geojson": result.geojson,
         "ms": int((time.perf_counter() - t0) * 1000),
         "model_version": MODEL_VERSION,
     }
+    if mask_as_bytes:
+        # SageMaker path: return the mask GeoTIFF inline so the kicker can write it
+        # to S3. base64 keeps it JSON-safe; masks compress well so this stays small.
+        out["mask_b64"] = base64.b64encode(
+            mask_to_geotiff_bytes(result.mask, result.profile)
+        ).decode("ascii")
+    else:
+        # Local path: write the mask to disk and return its path.
+        stem = Path(name_hint).stem or "scene"
+        out_mask = OUTPUT_DIR / f"{stem}_{uuid.uuid4().hex[:8]}_floodmask.tif"
+        out["mask_uri"] = write_mask(result.mask, result.profile, out_mask)
+    return out
 
 
-async def _handle_infer(request: Request) -> JSONResponse:
+async def _handle_infer(request: Request, mask_as_bytes: bool = False) -> JSONResponse:
     if not STATE.get("ready"):
         return JSONResponse({"error": "model not loaded"}, status_code=503)
 
@@ -84,7 +94,7 @@ async def _handle_infer(request: Request) -> JSONResponse:
             scene_uri = body.get("scene_uri")
             if not scene_uri:
                 return JSONResponse({"error": "missing scene_uri"}, status_code=400)
-            return JSONResponse(_run(scene_uri, want_geojson, scene_uri))
+            return JSONResponse(_run(scene_uri, want_geojson, scene_uri, mask_as_bytes))
 
         if ctype.startswith("multipart/form-data"):
             form = await request.form()
@@ -99,7 +109,8 @@ async def _handle_infer(request: Request) -> JSONResponse:
                 tmp.write(data)
                 tmp_path = tmp.name
             try:
-                return JSONResponse(_run(tmp_path, want_geojson, upload.filename or "scene"))
+                name = upload.filename or "scene"
+                return JSONResponse(_run(tmp_path, want_geojson, name, mask_as_bytes))
             finally:
                 os.unlink(tmp_path)
 
@@ -128,4 +139,5 @@ async def ping():
 
 @app.post("/invocations")
 async def invocations(request: Request):
-    return await _handle_infer(request)
+    # SageMaker entrypoint: return the mask bytes inline (the kicker writes them to S3).
+    return await _handle_infer(request, mask_as_bytes=True)

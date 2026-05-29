@@ -168,15 +168,34 @@ def _geom_pixels(geom: dict, px_area: float) -> float:
     return abs(area2) / 2.0 / px_area
 
 
+def _mask_profile(profile: dict) -> dict:
+    """Single-band uint8 LZW profile derived from the input scene's georeferencing."""
+    profile = dict(profile)
+    profile.update(count=1, dtype="uint8", nodata=None, compress="lzw")
+    return profile
+
+
 def write_mask(mask: np.ndarray, profile: dict, out_path: Path | str) -> str:
     """Write the mask as a single-band uint8 LZW GeoTIFF, matching the reference."""
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    profile = dict(profile)
-    profile.update(count=1, dtype="uint8", nodata=None, compress="lzw")
-    with rasterio.open(out_path, "w", **profile) as dst:
+    with rasterio.open(out_path, "w", **_mask_profile(profile)) as dst:
         dst.write(mask, 1)
     return str(out_path)
+
+
+def mask_to_geotiff_bytes(mask: np.ndarray, profile: dict) -> bytes:
+    """Encode the mask to an in-memory GeoTIFF, byte-identical to write_mask output.
+
+    Used by the SageMaker /invocations path, which returns the mask bytes to the
+    caller (the Lambda kicker writes them to S3) rather than to a local file.
+    """
+    from rasterio.io import MemoryFile
+
+    with MemoryFile() as mem:
+        with mem.open(**_mask_profile(profile)) as dst:
+            dst.write(mask, 1)
+        return mem.read()
 
 
 def resolve_uri(uri: str) -> str:

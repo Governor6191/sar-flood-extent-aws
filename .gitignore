@@ -38,6 +38,9 @@ cdk.out/
 # Build / run logs
 *.log
 
+# Lambda build artifact (rebuilt from lambda/kicker/)
+lambda/*.zip
+
 # OS / editor
 .DS_Store
 Thumbs.db

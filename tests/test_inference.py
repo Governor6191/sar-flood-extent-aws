@@ -21,6 +21,7 @@ from src.inference import (
     build_model,
     infer_scene,
     load_constants,
+    mask_to_geotiff_bytes,
     polygonize,
     predict,
     resolve_uri,
@@ -95,6 +96,30 @@ def test_polygonize_min_pixels_filters_speckle():
     _, n_filtered = polygonize(mask, transform, CRS.from_epsg(4326), min_pixels=10)
     assert n_all == 2
     assert n_filtered == 1
+
+
+def test_mask_to_geotiff_bytes_round_trips():
+    """The in-memory GeoTIFF (SageMaker path) reopens to the same mask and CRS."""
+    from io import BytesIO
+
+    mask = np.zeros((16, 24), dtype=np.uint8)
+    mask[4:12, 6:18] = 1
+    transform = Affine.translation(0, 16) * Affine.scale(1.0, -1.0)
+    profile = {
+        "driver": "GTiff",
+        "height": 16,
+        "width": 24,
+        "count": 2,  # input had 2 bands; the writer must force count=1
+        "dtype": "float32",
+        "crs": CRS.from_epsg(4326),
+        "transform": transform,
+    }
+    data = mask_to_geotiff_bytes(mask, profile)
+    with rasterio.open(BytesIO(data)) as src:
+        assert src.count == 1
+        assert src.dtypes[0] == "uint8"
+        assert src.crs == CRS.from_epsg(4326)
+        np.testing.assert_array_equal(src.read(1), mask)
 
 
 @pytest.mark.skipif(

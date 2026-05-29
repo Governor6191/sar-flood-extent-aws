@@ -1,5 +1,8 @@
 # sar-flood-extent-aws
 
+[![deploy](https://github.com/Governor6191/sar-flood-extent-aws/actions/workflows/deploy.yml/badge.svg)](https://github.com/Governor6191/sar-flood-extent-aws/actions/workflows/deploy.yml)
+[![pr-check](https://github.com/Governor6191/sar-flood-extent-aws/actions/workflows/pr-check.yml/badge.svg)](https://github.com/Governor6191/sar-flood-extent-aws/actions/workflows/pr-check.yml)
+
 Serverless AWS deployment of the [sar-flood-extent](https://github.com/Governor6191/sar-flood-extent)
 model: a U-Net that segments flood water from Sentinel-1 SAR imagery. This repo
 takes the released model and ships it as an HTTP inference API, with

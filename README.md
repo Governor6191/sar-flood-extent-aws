@@ -119,6 +119,18 @@ after a billing cycle.
 For the first 12 months a fresh account's free tier covers the API Gateway,
 Lambda, S3, and CloudWatch usage outright.
 
+## Monitoring
+
+A CloudWatch dashboard tracks the whole path: API Gateway requests and latency,
+the Lambda kicker, and the SageMaker endpoint. The dashboard JSON is committed at
+[cdk/dashboards/main.json](cdk/dashboards/main.json) and deployed by the stack.
+Three alarms fire on Lambda errors, API p99 latency over 60 s, and endpoint 5XX.
+
+![CloudWatch dashboard](docs/figures/cloudwatch_dashboard.png)
+
+The panels above are rendered from live metrics during a 30-request synthetic
+load: requests served, zero errors, sub-second model latency once warm.
+
 ## Accuracy
 
 The deployment path is the research path. The API reproduces the local inference

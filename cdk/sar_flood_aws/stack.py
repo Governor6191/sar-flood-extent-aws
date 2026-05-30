@@ -233,19 +233,46 @@ class SarFloodAwsStack(Stack):
 
         # Separate public key for the web demo. It ships inside flood-demo.html, so
         # it is visible in client source by design. The defense is not secrecy: it
-        # is this tight plan (20 req/day, 1 req/s, burst 2), the CORS origin lock to
-        # the portfolio site, and the 5 MB upload cap. Worst case a scraper burns 20
-        # cheap inferences a day, which the $5 budget alarm backstops. Keeping it
-        # separate means the public cap never touches the dev key above.
+        # is this usage plan, the CORS origin lock to the portfolio site, and the
+        # 5 MB upload cap. The async API polls for results, so ONE inference run
+        # spends several requests (presign + submit + a poll every couple seconds),
+        # not one. A 20/day quota was really only 1 to 2 runs across all visitors,
+        # which the demo blew through on a single cold start. 100/day gives a usable
+        # number of runs while cost stays in the cents: an inference needs an upload
+        # first, so it is at least 3 requests, capping abuse near 33 inferences/day
+        # at well under 1 cent each, with the $5/$25 budget alarms as the hard
+        # backstop. Keeping the key separate means this cap never touches the dev key.
         public_key = api.add_api_key("DemoPublicKey", api_key_name="sar-flood-aws-demo-public")
         public_plan = api.add_usage_plan(
             "PublicUsagePlan",
             name="sar-flood-aws-demo-public",
-            throttle=apigw.ThrottleSettings(rate_limit=1, burst_limit=2),
-            quota=apigw.QuotaSettings(limit=20, period=apigw.Period.DAY),
+            throttle=apigw.ThrottleSettings(rate_limit=2, burst_limit=5),
+            quota=apigw.QuotaSettings(limit=100, period=apigw.Period.DAY),
         )
         public_plan.add_api_key(public_key)
         public_plan.add_api_stage(stage=api.deployment_stage)
+
+        # API Gateway adds CORS headers to the MOCK preflight and to Lambda proxy
+        # responses, but NOT to requests it rejects itself: a throttle or daily-quota
+        # 429, or a bad-key 403, never reaches the Lambda. Without CORS on those, the
+        # browser cannot read them and reports an opaque "failed to fetch" instead of
+        # the real status. Put the CORS headers on the default 4XX/5XX gateway
+        # responses so the web demo can show a clean "busy, try again" message.
+        for _rid, _rtype in (
+            ("Default4xxCors", apigw.ResponseType.DEFAULT_4_XX),
+            ("Default5xxCors", apigw.ResponseType.DEFAULT_5_XX),
+        ):
+            apigw.GatewayResponse(
+                self,
+                _rid,
+                rest_api=api,
+                type=_rtype,
+                response_headers={
+                    "Access-Control-Allow-Origin": f"'{ALLOWED_ORIGIN}'",
+                    "Access-Control-Allow-Headers": "'Content-Type,x-api-key'",
+                    "Access-Control-Allow-Methods": "'GET,POST,OPTIONS'",
+                },
+            )
 
         # --- CloudWatch alarms -------------------------------------------
         fn.metric_errors(period=Duration.minutes(5)).create_alarm(
